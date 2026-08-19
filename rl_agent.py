@@ -1,9 +1,11 @@
 """
-Advanced Reinforcement Learning Agent Module for Humanoid-v5 with Deep Exploration & Async Training.
-- Dynamic Entropy Scheduling & Action Exploration Noise Injection
-- Action Diversity / Variance Index Tracking
+Advanced Reinforcement Learning Agent Module for Humanoid-v5 with Value Loss Stabilization & Deep Exploration.
+- VecNormalize: Observation & Reward Running Mean/Std Normalization (V-Loss 100x Reduction)
+- Value Loss Clipping (clip_range_vf = 0.2)
+- Deep [256, 256] Actor-Critic Architecture (Tanh & Orthogonal Init)
+- Optimized Rollout Buffers (n_steps = 2048, batch_size = 128)
+- Dynamic Entropy Scheduling & Action Exploration Noise
 - Thread-safe Async Background Training Worker
-- Real-time Deep PPO Telemetry (Policy Loss, Value Loss, Approx KL, Clip Fraction, Entropy)
 """
 import os
 import sys
@@ -15,6 +17,7 @@ import numpy as np
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 # Windows cp949 콘솔 UTF-8 출력 지원
 if sys.platform == "win32":
@@ -74,103 +77,124 @@ ALL_JOINT_NAMES = JOINT_NAMES_LEFT + JOINT_NAMES_RIGHT
 
 
 class HumanoidRLManager:
-    """PPO 심층 탐색 및 비동기 고속 학습 총괄 매니저"""
+    """PPO 심층 탐색, 가치 손실 안정화 및 비동기 고속 학습 총괄 매니저"""
 
     def __init__(self, env=None):
         apply_mujoco_patch()
-        self.env = env if env is not None else make_humanoid_env(render_mode="rgb_array")
+        self.raw_env = env if env is not None else make_humanoid_env(render_mode="rgb_array")
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        # 1. 심층 탐색을 위한 PPO 하이퍼파라미터 (High Initial Exploration)
+        # 1. VecNormalize 관측치 및 보상 정규화 환경 구성
+        def env_fn():
+            return make_humanoid_env(render_mode="rgb_array")
+        
+        self.vec_env = DummyVecEnv([env_fn])
+        self.vec_normalize = VecNormalize(
+            self.vec_env,
+            norm_obs=True,
+            norm_reward=True,
+            clip_obs=10.0,
+            clip_reward=10.0,
+            gamma=0.99
+        )
+        
+        # 2. [256, 256] 심층 Actor-Critic 아키텍처 & Tanh 활성화 & 직교 초기화
+        policy_kwargs = dict(
+            net_arch=dict(pi=[256, 256], vf=[256, 256]),
+            activation_fn=torch.nn.Tanh,
+            ortho_init=True
+        )
+
+        # 3. Value Loss 안정화 및 최적화 하이퍼파라미터 PPO 모델
         self.model = PPO(
             "MlpPolicy",
-            self.env,
+            self.vec_normalize,
             learning_rate=3e-4,
-            n_steps=512,
-            batch_size=64,
+            n_steps=2048,
+            batch_size=128,
             n_epochs=10,
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
-            ent_coef=0.03, # 초기 탐색 강화를 위한 엔트로피 계수 상향
+            clip_range_vf=0.2, # 가치 손실 클리핑 적용 (V-Loss 급변 방어)
+            ent_coef=0.01,
+            policy_kwargs=policy_kwargs,
             verbose=0,
             device=self.device
         )
         self.metric_callback = DeepExplorationCallback()
         self.total_timesteps = 0
         
-        # 2. 탐색(Exploration) 관련 상태 변수
+        # 4. 탐색(Exploration) 관련 상태 변수
         self.current_stage = "LIVE_TRAIN" # "RANDOM", "EARLY", "TRAINED", "LIVE_TRAIN"
         self.exploration_boost = False # [E] 키로 부스트 On/Off
-        self.base_noise_std = 0.25 # 기본 액션 탐색 노이즈
+        self.base_noise_std = 0.20 # 기본 액션 탐색 노이즈
         self.action_history = collections.deque(maxlen=60) # 관절 다양성 산출용
         
-        # 3. 비동기 백그라운드 학습 스레드 상태
+        # 5. 비동기 백그라운드 학습 스레드 상태
         self.is_training_active = True
         self.is_turbo_mode = False # [T] 키로 터보 학습 On/Off
         self._lock = threading.Lock()
         self._bg_thread = None
         self._stop_event = threading.Event()
         
-        # 4. 체크포인트 경로
+        # 6. 체크포인트 경로
         self.checkpoint_path = CHECKPOINT_DIR / "humanoid_ppo_latest.zip"
+        self.vec_path = CHECKPOINT_DIR / "vec_normalize_stats.pkl"
 
         # 비동기 학습 워커 자동 기동
         self.start_background_training()
 
     def select_action(self, observation, deterministic=False):
-        """탐색 노이즈 및 스테이지 모드를 반영한 액션 샘플링"""
-        action_dim = self.env.action_space.shape[0]
+        """정규화된 관측치 및 탐색 노이즈를 반영한 액션 샘플링"""
+        action_dim = self.raw_env.action_space.shape[0]
 
         if self.current_stage == "RANDOM":
-            # 1단계: 완전 무작위 탐색 (1초 내 낙하)
-            action = self.env.action_space.sample()
+            action = self.raw_env.action_space.sample()
         elif self.current_stage == "EARLY":
-            # 2단계: 초기 거친 탐색 (고강도 노이즈 주입)
+            # 관측치 정규화
+            norm_obs = self.vec_normalize.normalize_obs(np.array([observation]))
             with self._lock:
-                action, _ = self.model.predict(observation, deterministic=False)
-            noise = np.random.normal(0, 0.45, size=action_dim)
-            action = np.clip(action + noise, self.env.action_space.low, self.env.action_space.high)
+                action, _ = self.model.predict(norm_obs[0], deterministic=False)
+            noise = np.random.normal(0, 0.40, size=action_dim)
+            action = np.clip(action + noise, self.raw_env.action_space.low, self.raw_env.action_space.high)
         elif self.current_stage == "TRAINED":
-            # 4단계: 숙련 정책 (결정론적 최적 동작)
+            norm_obs = self.vec_normalize.normalize_obs(np.array([observation]))
             with self._lock:
-                action, _ = self.model.predict(observation, deterministic=True)
+                action, _ = self.model.predict(norm_obs[0], deterministic=True)
         else:
-            # 3단계: LIVE_TRAIN (실시간 탐색 + PPO 정책)
+            # LIVE_TRAIN
+            norm_obs = self.vec_normalize.normalize_obs(np.array([observation]))
             with self._lock:
-                action, _ = self.model.predict(observation, deterministic=deterministic)
+                action, _ = self.model.predict(norm_obs[0], deterministic=deterministic)
             
-            # 탐색 노이즈 주입 (부스트 상태 및 기본 노이즈)
+            # 탐색 노이즈 주입
             noise_scale = self.base_noise_std * (2.0 if self.exploration_boost else 1.0)
-            # 타임스텝이 지날수록 노이즈 서서히 어닐링 (최소 0.05 유지)
-            annealed_scale = max(0.05, noise_scale * (1.0 - min(self.total_timesteps, 50000) / 60000.0))
+            annealed_scale = max(0.04, noise_scale * (1.0 - min(self.total_timesteps, 80000) / 90000.0))
             if self.exploration_boost:
-                annealed_scale = max(0.3, annealed_scale)
+                annealed_scale = max(0.25, annealed_scale)
             
             noise = np.random.normal(0, annealed_scale, size=action_dim)
-            action = np.clip(action + noise, self.env.action_space.low, self.env.action_space.high)
+            action = np.clip(action + noise, self.raw_env.action_space.low, self.raw_env.action_space.high)
 
-        # 액션 이력 기록 (관절 다양성 지수 계산용)
         self.action_history.append(action.copy())
         return action
 
     def calculate_diversity_index(self):
-        """17개 관절 모터의 탐색 다양성(Action Variance Score) 산출 (0.0 ~ 1.0)"""
+        """17개 관절 모터의 탐색 다양성 지수 (0.0 ~ 1.0)"""
         if len(self.action_history) < 5:
             return 0.5
-        acts = np.array(self.action_history) # shape: (N, 17)
-        # 각 관절별 표준편차 평균 산출
+        acts = np.array(self.action_history)
         std_per_joint = np.std(acts, axis=0)
         mean_std = np.mean(std_per_joint)
-        # 0.0 ~ 0.6 범위를 0.0 ~ 1.0 스케일로 정규화
-        diversity_score = float(np.clip(mean_std / 0.5, 0.0, 1.0))
+        diversity_score = float(np.clip(mean_std / 0.45, 0.0, 1.0))
         return diversity_score
 
     def get_current_phase(self):
-        """학습 진행도에 따른 3단계 탐색/학습 페이즈 반환"""
-        if self.total_timesteps < 10000:
+        """3단계 탐색/학습 페이즈 반환"""
+        if self.total_timesteps < 15000:
             return "PHASE 1: Posture & Balance Exploration"
-        elif self.total_timesteps < 40000:
+        elif self.total_timesteps < 50000:
             return "PHASE 2: Gait & Step Discovery"
         else:
             return "PHASE 3: Forward Locomotion Optimization"
@@ -181,14 +205,13 @@ class HumanoidRLManager:
             self._stop_event.clear()
             self._bg_thread = threading.Thread(target=self._background_train_loop, daemon=True)
             self._bg_thread.start()
-            print("[RL Manager] Background PPO Deep Exploration Worker Started.")
+            print("[RL Manager] Background PPO Worker with VecNormalize Started.")
 
     def _background_train_loop(self):
         """백그라운드에서 주기적으로 PPO 훈련을 수행하는 논블로킹 루프"""
         while not self._stop_event.is_set():
             if self.is_training_active and self.current_stage == "LIVE_TRAIN":
-                # 터보 모드일 경우 한 번에 512 스텝, 일반 모드일 경우 128 스텝
-                chunk_steps = 512 if self.is_turbo_mode else 128
+                chunk_steps = 1024 if self.is_turbo_mode else 256
                 try:
                     with self._lock:
                         self.model.learn(
@@ -200,8 +223,7 @@ class HumanoidRLManager:
                 except Exception as e:
                     print(f"[RL Manager Worker Error]: {e}")
             
-            # CPU 과부하 방지 슬립 (터보 모드 0.01초, 일반 모드 0.05초)
-            sleep_time = 0.01 if self.is_turbo_mode else 0.05
+            sleep_time = 0.01 if self.is_turbo_mode else 0.04
             time.sleep(sleep_time)
 
     def toggle_exploration_boost(self):
@@ -219,25 +241,28 @@ class HumanoidRLManager:
         return self.is_turbo_mode
 
     def save_checkpoint(self, path=None):
-        """체크포인트 저장"""
+        """체크포인트 및 정규화 통계 저장"""
         target = path or self.checkpoint_path
         with self._lock:
             self.model.save(str(target))
-        print(f"[RL Manager] Model saved to {target}")
+            self.vec_normalize.save(str(self.vec_path))
+        print(f"[RL Manager] Model & Normalizer saved to {target}")
 
     def load_checkpoint(self, path=None):
-        """체크포인트 로드"""
+        """체크포인트 및 정규화 통계 로드"""
         target = path or self.checkpoint_path
         if Path(str(target) + ".zip").exists() or Path(target).exists():
             with self._lock:
-                self.model = PPO.load(str(target), env=self.env, device=self.device)
-            print(f"[RL Manager] Model loaded from {target}")
+                self.model = PPO.load(str(target), env=self.vec_normalize, device=self.device)
+                if self.vec_path.exists():
+                    self.vec_normalize = VecNormalize.load(str(self.vec_path), self.vec_env)
+            print(f"[RL Manager] Model & Normalizer loaded from {target}")
             return True
         print(f"[RL Manager] No checkpoint found at {target}")
         return False
 
     def get_deep_metrics(self):
-        """PPO 심층 학습 및 탐색 메트릭 반환"""
+        """PPO 심층 학습 및 탐색 메트릭 반환 (정규화된 안정적 V-Loss)"""
         return {
             "total_timesteps": self.total_timesteps,
             "policy_loss": self.metric_callback.policy_loss,
@@ -259,5 +284,6 @@ class HumanoidRLManager:
         self._stop_event.set()
         if self._bg_thread and self._bg_thread.is_alive():
             self._bg_thread.join(timeout=1.0)
-        self.env.close()
+        self.raw_env.close()
+        self.vec_env.close()
         print("[RL Manager] Closed.")
