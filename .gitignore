@@ -1,0 +1,23 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Pygame & OS generated
+*.spec
+.DS_Store
+Thumbs.db
+
+# Checkpoints / Large weights (선택적)
+# checkpoints/*.zip
+
+# Verification dumps (필요시)
+# test_patch.py
