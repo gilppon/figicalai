@@ -1,28 +1,37 @@
-# ⚡ FigicalAI - Humanoid-v5 Visual RL Dashboard
+# ⚡ FigicalAI - Humanoid-v5 Deep Exploration RL Dashboard
 
-> **Real-time 3D Physical Simulation & Cyberpunk Telemetry HUD Dashboard for Reinforcement Learning (PPO)**
+> **Real-time 3D Physical Simulation, Deep Exploration (Entropy Scheduling & Action Noise), and Async PPO Telemetry HUD Dashboard**
 
-![Screenshot](verification_screenshot.png)
+![Deep Exploration Screenshot](verification_screenshot.png)
 
 ---
 
 ## 🌟 Key Features
 
-1. **🎮 Real-Time 3D Physics Simulation (60 FPS)**
-   - Powered by Gymnasium & MuJoCo `Humanoid-v5`.
-   - Windows non-ASCII (UTF-8) XML Path compatibility patch integrated.
+1. **🎮 60 FPS Real-Time 3D Physics Simulation**
+   - Gymnasium & MuJoCo `Humanoid-v5` environment.
+   - Built-in Windows non-ASCII (UTF-8) XML Path compatibility patch.
 
-2. **📊 Cyberpunk Telemetry HUD Dashboard**
+2. **🎲 Deep Exploration Engine (PPO)**
+   - **Dynamic Entropy Scheduling**: Ensures sufficient early-stage postural exploration.
+   - **Action Exploration Noise**: Scheduled Gaussian noise injection to discover complex motor coordination.
+   - **Joint Action Diversity Index**: Real-time variance scoring (0~100%) across all 17 humanoid joint actuators.
+   - **🎯 3-Stage Learning Phase Tracking**:
+     - `PHASE 1`: Posture & Balance Exploration
+     - `PHASE 2`: Gait & Step Discovery
+     - `PHASE 3`: Forward Locomotion Optimization
+
+3. **⚡ Thread-Safe Async Background Training Worker**
+   - Decoupled rendering and training threads for a smooth 60 FPS UI experience.
+   - High-speed PPO optimization running asynchronously in the background.
+   - Live neural network weight hot-swapping into the visual agent.
+
+4. **📊 Cyberpunk Telemetry HUD Dashboard**
    - **Live Metrics**: Episode count, Step count, Step Reward, Current Return, Best Record.
+   - **Exploration Gauges**: Joint Diversity Index & Policy Entropy meters.
+   - **Deep PPO Telemetry**: Policy Loss, Value Loss, Approx KL Divergence, Clip Fraction.
    - **📈 Reward Trend Line Chart**: Real-time learning curve visualization of the last 60 episodes.
-   - **🏃 Body Telemetry**: Forward Velocity ($V_x$) & Torso Z-Height survival gauges.
    - **🎛️ Joint Actuators**: Real-time torque heatmaps for all 17 humanoid motor joints.
-
-3. **🧬 4-Stage Evolution Showcase & Online Training**
-   - **`[1]` Random Fall**: Untrained policy (collapses within 1 second).
-   - **`[2]` Early Wobble**: Early learning phase (wobbling & taking a few steps).
-   - **`[3]` Live Training**: Online PPO reinforcement learning with real-time neural weight updates.
-   - **`[4]` Trained Expert**: Stabilized forward locomotion.
 
 ---
 
@@ -31,9 +40,11 @@
 | Key | Action |
 | :--- | :--- |
 | **`[SPACE]`** | Pause / Resume simulation |
-| **`[1]`** | Switch to **Random Mode** (Untrained) |
-| **`[2]`** | Switch to **Early Stage Mode** (Wobble) |
-| **`[3]`** | Switch to **Live Training Mode** (PPO) |
+| **`[E]`** | **Toggle Exploration Boost** (2x Noise injection for creative postures) |
+| **`[T]`** | **Toggle Turbo Fast-Training** (Ultra-high speed PPO optimization) |
+| **`[1]`** | Switch to **Random Mode** (Untrained fall) |
+| **`[2]`** | Switch to **Early Stage Mode** (Wobble & step) |
+| **`[3]`** | Switch to **Live Training Mode** (Async PPO with Live Exploration) |
 | **`[4]`** | Switch to **Trained Expert Mode** |
 | **`[+]` / `[-]`** | Speed multiplier (`1x`, `2x`, `4x`, `8x`) |
 | **`[R]`** | Reset episode immediately |
@@ -70,8 +81,8 @@ Or simply double-click `run.bat` on Windows!
 ```
 figicalai/
 ├── mujoco_patch.py         # MuJoCo UTF-8 XML path compatibility patch & env factory
-├── rl_agent.py             # PPO RL agent & metric tracking manager
-├── visual_humanoid_app.py  # Pygame 3D viewer & Cyberpunk HUD dashboard
+├── rl_agent.py             # PPO RL agent with deep exploration & async training worker
+├── visual_humanoid_app.py  # Pygame 3D viewer & Cyberpunk Deep Exploration HUD
 ├── untitled2.py            # Main entry point launcher
 ├── verify.py               # 3-Gate automated system verification test
 ├── run.bat                 # One-click Windows launcher
