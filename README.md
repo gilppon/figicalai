@@ -1,37 +1,32 @@
-# ⚡ FigicalAI - Humanoid-v5 Deep Exploration RL Dashboard
+# ⚡ FIGICAL AI ROBOT LAB - Humanoid-v5 PPO Dashboard
 
-> **Real-time 3D Physical Simulation, Deep Exploration (Entropy Scheduling & Action Noise), and Async PPO Telemetry HUD Dashboard**
+> **Real-time 3D Physical Simulation, Deep Exploration (Entropy Scheduling & Action Noise), 17 DOF Actuator Telemetry, and Live Console Log Streaming for PPO Continuous Control**
 
-![Deep Exploration Screenshot](verification_screenshot.png)
+![FIGICAL AI ROBOT LAB](verification_screenshot.png)
 
 ---
 
-## 🌟 Key Features
+## 🌟 Key Features & Layout Architecture
 
-1. **🎮 60 FPS Real-Time 3D Physics Simulation**
-   - Gymnasium & MuJoCo `Humanoid-v5` environment.
-   - Built-in Windows non-ASCII (UTF-8) XML Path compatibility patch.
+1. **🏛️ Modern 4-Tier Split Layout**
+   - **Top Header Bar**: Branding title, Live `[■ PPO 학습중 (Active)]` status badge, and Speed indicator `[배속: 1x [F]]`.
+   - **Top Left 3D Viewport**: Real-time MuJoCo `Humanoid-v5` physics rendering with 3 semi-transparent HUD overlay cards:
+     - `[EPISODE #]`
+     - `[ALIVE STEP]` (Mint Accent)
+     - `[EXPLORATION NOISE σ]` (Gold Accent)
+   - **Top Right Telemetry Panel (3 Sections)**:
+     - **2x2 Big-Number Metrics**: Current Episode Reward (Cyan), Best Return (Gold), 20-Ep Average (Mint), Total Steps (Blue).
+     - **PPO Learning Diagnostics**: Policy Gradient Loss, Value Function Loss, Entropy (Exploration Rate), Policy Updates count.
+     - **Actuator Torques (17 DOF)**: 2-column labeled joint torque bars (Abdomen Z/Y/X, R/L Hip, R/L Knee, R/L Shoulder, R/L Elbow) with bidirectional Cyan (+) & Magenta (-) bars.
+   - **Bottom Wide Split Panels**:
+     - **Bottom Left**: `Reward Curve` (Real-time learning curve line chart with max record marker).
+     - **Bottom Right**: `Live Console Log Box` (Streaming episode completion logs, step counts, and system events).
 
-2. **🎲 Deep Exploration Engine (PPO)**
-   - **Dynamic Entropy Scheduling**: Ensures sufficient early-stage postural exploration.
-   - **Action Exploration Noise**: Scheduled Gaussian noise injection to discover complex motor coordination.
-   - **Joint Action Diversity Index**: Real-time variance scoring (0~100%) across all 17 humanoid joint actuators.
-   - **🎯 3-Stage Learning Phase Tracking**:
-     - `PHASE 1`: Posture & Balance Exploration
-     - `PHASE 2`: Gait & Step Discovery
-     - `PHASE 3`: Forward Locomotion Optimization
-
-3. **⚡ Thread-Safe Async Background Training Worker**
-   - Decoupled rendering and training threads for a smooth 60 FPS UI experience.
-   - High-speed PPO optimization running asynchronously in the background.
-   - Live neural network weight hot-swapping into the visual agent.
-
-4. **📊 Cyberpunk Telemetry HUD Dashboard**
-   - **Live Metrics**: Episode count, Step count, Step Reward, Current Return, Best Record.
-   - **Exploration Gauges**: Joint Diversity Index & Policy Entropy meters.
-   - **Deep PPO Telemetry**: Policy Loss, Value Loss, Approx KL Divergence, Clip Fraction.
-   - **📈 Reward Trend Line Chart**: Real-time learning curve visualization of the last 60 episodes.
-   - **🎛️ Joint Actuators**: Real-time torque heatmaps for all 17 humanoid motor joints.
+2. **🎲 Deep Exploration & Async 60FPS PPO Engine**
+   - **Dynamic Entropy Scheduling**: Early wide posture exploration converging to smooth forward locomotion.
+   - **Scheduled Action Exploration Noise**: `[E]` key for 2x Exploration Boost.
+   - **Decoupled Async Training Worker**: Smooth 60 FPS rendering while background threads run intensive PPO training.
+   - **`[T]` Turbo Fast-Training Mode**: 5x accelerated PPO optimization.
 
 ---
 
@@ -40,13 +35,13 @@
 | Key | Action |
 | :--- | :--- |
 | **`[SPACE]`** | Pause / Resume simulation |
+| **`[F]`** | **Toggle Speed Multiplier** (`1x` ➡️ `2x` ➡️ `4x` ➡️ `8x`) |
 | **`[E]`** | **Toggle Exploration Boost** (2x Noise injection for creative postures) |
 | **`[T]`** | **Toggle Turbo Fast-Training** (Ultra-high speed PPO optimization) |
 | **`[1]`** | Switch to **Random Mode** (Untrained fall) |
 | **`[2]`** | Switch to **Early Stage Mode** (Wobble & step) |
 | **`[3]`** | Switch to **Live Training Mode** (Async PPO with Live Exploration) |
 | **`[4]`** | Switch to **Trained Expert Mode** |
-| **`[+]` / `[-]`** | Speed multiplier (`1x`, `2x`, `4x`, `8x`) |
 | **`[R]`** | Reset episode immediately |
 | **`[S]` / `[L]`** | Save / Load model checkpoint |
 | **`[ESC]` / `[Q]`** | Quit application |
@@ -82,7 +77,7 @@ Or simply double-click `run.bat` on Windows!
 figicalai/
 ├── mujoco_patch.py         # MuJoCo UTF-8 XML path compatibility patch & env factory
 ├── rl_agent.py             # PPO RL agent with deep exploration & async training worker
-├── visual_humanoid_app.py  # Pygame 3D viewer & Cyberpunk Deep Exploration HUD
+├── visual_humanoid_app.py  # FIGICAL AI ROBOT LAB 4-tier dashboard
 ├── untitled2.py            # Main entry point launcher
 ├── verify.py               # 3-Gate automated system verification test
 ├── run.bat                 # One-click Windows launcher

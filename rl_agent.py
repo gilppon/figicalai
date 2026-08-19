@@ -41,12 +41,14 @@ class DeepExplorationCallback(BaseCallback):
         self.clip_fraction = 0.0
         self.explained_variance = 0.0
         self.step_count = 0
+        self.update_count = 0
 
     def _on_step(self) -> bool:
         self.step_count += 1
         return True
 
     def _on_rollout_end(self) -> None:
+        self.update_count += 1
         if hasattr(self.model, "logger") and self.model.logger:
             nv = self.model.logger.name_to_value
             self.policy_loss = nv.get("train/policy_gradient_loss", self.policy_loss)
@@ -55,6 +57,20 @@ class DeepExplorationCallback(BaseCallback):
             self.approx_kl = nv.get("train/approx_kl", self.approx_kl)
             self.clip_fraction = nv.get("train/clip_fraction", self.clip_fraction)
             self.explained_variance = nv.get("train/explained_variance", self.explained_variance)
+
+
+# Humanoid-v5 17개 관절 매핑 (2열 배치용)
+JOINT_NAMES_LEFT = [
+    "Abdomen Z", "Abdomen Y", "Abdomen X",
+    "R Hip X", "R Hip Z", "R Hip Y", "R Knee",
+    "L Hip X", "L Hip Z"
+]
+JOINT_NAMES_RIGHT = [
+    "L Hip Y", "L Knee",
+    "R Shoulder", "R Shoulder", "R Elbow",
+    "L Shoulder", "L Shoulder", "L Elbow"
+]
+ALL_JOINT_NAMES = JOINT_NAMES_LEFT + JOINT_NAMES_RIGHT
 
 
 class HumanoidRLManager:
@@ -230,6 +246,7 @@ class HumanoidRLManager:
             "approx_kl": self.metric_callback.approx_kl,
             "clip_fraction": self.metric_callback.clip_fraction,
             "explained_variance": self.metric_callback.explained_variance,
+            "update_count": self.metric_callback.update_count,
             "diversity_index": self.calculate_diversity_index(),
             "exploration_boost": self.exploration_boost,
             "is_turbo": self.is_turbo_mode,

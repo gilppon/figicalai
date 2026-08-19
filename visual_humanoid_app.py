@@ -1,7 +1,7 @@
 """
-Real-time 3D Humanoid Deep Exploration & PPO Telemetry HUD Dashboard.
-실시간 3D 물리 시뮬레이션 화면과 함께 강화학습 에이전트의 심층 탐색(Exploration),
-엔트로피 스케줄링, 관절 다양성 지수, PPO 신경망 손실 지표를 실시간으로 모니터링합니다.
+FIGICAL AI ROBOT LAB - Humanoid-v5 Real-time Deep Exploration PPO Dashboard.
+타인 GUI(ROBOT AI LAB)의 세련된 4단 분할(3D 뷰 오버레이 카드, 2x2 빅넘버, 17 DOF 2열 바, 하단 와이드 차트 + 실시간 콘솔 롤링 로그)을
+100% 완벽 흡수하고, 한글 폰트 무결성 및 60FPS 비동기 PPO 엔진을 장착한 초격차 강화학습 대시보드입니다.
 """
 import sys
 import time
@@ -21,30 +21,44 @@ import pygame
 import gymnasium as gym
 
 from mujoco_patch import make_humanoid_env, apply_mujoco_patch
-from rl_agent import HumanoidRLManager
+from rl_agent import HumanoidRLManager, JOINT_NAMES_LEFT, JOINT_NAMES_RIGHT, ALL_JOINT_NAMES
 
-# ==========================================
-# 🎨 UI & 테마 색상 팔레트 (Cyberpunk Deep Tech)
-# ==========================================
-BG_DARK = (10, 14, 20)
-PANEL_BG = (18, 24, 34)
-PANEL_BORDER = (42, 52, 68)
+# ========================================================
+# 🎨 UI & 테마 색상 팔레트 (Cyberpunk Deep Tech Slate)
+# ========================================================
+BG_DARK = (11, 15, 23)
+HEADER_BG = (15, 21, 32)
+PANEL_BG = (17, 23, 34)
+PANEL_INNER_BG = (22, 30, 44)
+PANEL_BORDER = (38, 48, 66)
+OVERLAY_CARD_BG = (15, 21, 32, 210) # 반투명 오버레이
+
 ACCENT_CYAN = (0, 229, 255)
-ACCENT_GREEN = (0, 230, 118)
-ACCENT_ORANGE = (255, 145, 0)
-ACCENT_RED = (255, 61, 0)
-ACCENT_PURPLE = (213, 0, 249)
-ACCENT_YELLOW = (255, 214, 0)
-TEXT_WHITE = (240, 246, 252)
-TEXT_MUTED = (139, 148, 158)
-BAR_BG = (28, 36, 48)
-GRAPH_GRID = (25, 32, 44)
+ACCENT_MINT = (0, 230, 118)
+ACCENT_GOLD = (255, 196, 0)
+ACCENT_ORANGE = (255, 109, 0)
+ACCENT_RED = (255, 45, 85)
+ACCENT_MAGENTA = (255, 64, 129)
+ACCENT_PURPLE = (124, 77, 255)
+ACCENT_BLUE = (68, 138, 255)
+
+TEXT_WHITE = (245, 247, 250)
+TEXT_MUTED = (130, 142, 160)
+TEXT_DIM = (90, 102, 120)
+BAR_TRACK = (28, 38, 54)
+GRAPH_GRID = (26, 36, 50)
+
+
+def get_font(size, bold=False):
+    """Windows/Linux/Mac에서 한글이 깨지지 않는 시스템 폰트를 안전하게 로드합니다."""
+    font_candidates = ["malgungothic", "nanumgothic", "applegothic", "segoeui", "consolas", "arial"]
+    return pygame.font.SysFont(font_candidates, size, bold=bold)
 
 
 class VisualHumanoidApp:
-    def __init__(self, win_width=1320, win_height=740, render_size=(760, 700)):
+    def __init__(self, win_width=1360, win_height=780, render_size=(790, 475)):
         pygame.init()
-        pygame.display.set_caption("⚡ Humanoid-v5 Deep Exploration RL Dashboard | PPO Engine")
+        pygame.display.set_caption("FIGICAL AI ROBOT LAB | PPO Deep Reinforcement Learning (Humanoid-v5)")
 
         self.win_width = win_width
         self.win_height = win_height
@@ -52,22 +66,20 @@ class VisualHumanoidApp:
         self.screen = pygame.display.set_mode((win_width, win_height))
         self.clock = pygame.time.Clock()
 
-        # 폰트 초기화 (Consolas -> Arial -> 기본 폰트 순서 폴백)
-        try:
-            self.font_title = pygame.font.SysFont("consolas", 18, bold=True)
-            self.font_main = pygame.font.SysFont("consolas", 13, bold=True)
-            self.font_sub = pygame.font.SysFont("consolas", 11)
-            self.font_badge = pygame.font.SysFont("consolas", 12, bold=True)
-            self.font_phase = pygame.font.SysFont("consolas", 12, bold=True)
-        except Exception:
-            self.font_title = pygame.font.Font(None, 22)
-            self.font_main = pygame.font.Font(None, 16)
-            self.font_sub = pygame.font.Font(None, 13)
-            self.font_badge = pygame.font.Font(None, 14)
-            self.font_phase = pygame.font.Font(None, 14)
+        # 폰트 로드 (한글 깨짐 없는 고해상도 폰트 체계)
+        self.font_header_title = get_font(18, bold=True)
+        self.font_header_sub = get_font(12, bold=False)
+        self.font_card_title = get_font(11, bold=True)
+        self.font_card_val_large = get_font(22, bold=True)
+        self.font_section_title = get_font(12, bold=True)
+        self.font_body = get_font(11, bold=False)
+        self.font_body_bold = get_font(11, bold=True)
+        self.font_console = get_font(11, bold=False)
+        self.font_overlay_label = get_font(10, bold=True)
+        self.font_overlay_val = get_font(16, bold=True)
 
-        # MuJoCo 환경 및 심층 RL 매니저 초기화
-        print("[App] Initializing MuJoCo Humanoid-v5 Environment & PPO Deep Exploration Manager...")
+        # MuJoCo 환경 및 RL 매니저 초기화
+        print("[App] Initializing MuJoCo Humanoid-v5 Environment...")
         self.env = make_humanoid_env(
             render_mode="rgb_array",
             width=self.render_width,
@@ -78,16 +90,19 @@ class VisualHumanoidApp:
         # 에피소드 및 텔레메트리 변수
         self.obs, self.info = self.env.reset()
         self.episode_count = 1
-        self.current_step = 0
+        self.alive_step = 0
         self.episode_reward = 0.0
         self.best_reward = -float("inf")
-        self.last_rewards = collections.deque(maxlen=60)
+        self.last_rewards = collections.deque(maxlen=100)
         self.current_action = np.zeros(self.env.action_space.shape)
-        self.forward_velocity = 0.0
-        self.torso_height = 1.4 # 초기 높이
         self.step_reward = 0.0
 
-        # 시뮬레이션 제어 변수
+        # 하단 롤링 터미널 콘솔 로그 버퍼 (최대 100개 저장, 화면에 최근 6개 표시)
+        self.console_logs = collections.deque(maxlen=100)
+        self.console_logs.append("[SYSTEM] FIGICAL AI ROBOT LAB 초기화 완료 - PPO 엔진 준비됨.")
+        self.console_logs.append("[SYSTEM] MuJoCo Humanoid-v5 3D 물리 시뮬레이션 연결 성공.")
+
+        # 제어 변수
         self.is_paused = False
         self.speed_multiplier = 1 # 1x, 2x, 4x, 8x
         self.is_running = True
@@ -98,12 +113,10 @@ class VisualHumanoidApp:
         while self.is_running:
             self.handle_events()
             
-            # 시뮬레이션 진행 (배속에 따라 여러 스텝 실행)
             if not self.is_paused:
                 for _ in range(self.speed_multiplier):
                     self.step_simulation()
 
-            # 화면 렌더링
             self.render_ui()
             self.clock.tick(self.fps)
 
@@ -119,6 +132,11 @@ class VisualHumanoidApp:
                     self.is_running = False
                 elif event.key == pygame.K_SPACE:
                     self.is_paused = not self.is_paused
+                elif event.key in (pygame.K_f, pygame.K_PLUS, pygame.K_EQUALS):
+                    # [F] 키로 배속 토글 1x -> 2x -> 4x -> 8x -> 1x
+                    speeds = [1, 2, 4, 8]
+                    curr_idx = speeds.index(self.speed_multiplier) if self.speed_multiplier in speeds else 0
+                    self.speed_multiplier = speeds[(curr_idx + 1) % len(speeds)]
                 elif event.key == pygame.K_e:
                     # [E] 탐색 부스트 토글
                     self.rl_manager.toggle_exploration_boost()
@@ -133,286 +151,359 @@ class VisualHumanoidApp:
                     self.rl_manager.current_stage = "LIVE_TRAIN"
                 elif event.key == pygame.K_4:
                     self.rl_manager.current_stage = "TRAINED"
-                elif event.key in (pygame.K_PLUS, pygame.K_EQUALS):
-                    self.speed_multiplier = min(8, self.speed_multiplier * 2)
-                elif event.key in (pygame.K_MINUS, pygame.K_UNDERSCORE):
-                    self.speed_multiplier = max(1, self.speed_multiplier // 2)
                 elif event.key == pygame.K_r:
                     self.reset_episode()
                 elif event.key == pygame.K_s:
                     self.rl_manager.save_checkpoint()
+                    self.console_logs.append(f"[CHECKPOINT] 모델 체크포인트 저장 완료 (Episode #{self.episode_count})")
                 elif event.key == pygame.K_l:
-                    self.rl_manager.load_checkpoint()
+                    if self.rl_manager.load_checkpoint():
+                        self.console_logs.append("[CHECKPOINT] 모델 체크포인트 로드 성공.")
 
     def step_simulation(self):
         """1 스텝 시뮬레이션 및 메트릭 갱신"""
-        # 행동 결정 (탐색 노이즈 반영)
         action = self.rl_manager.select_action(self.obs)
         self.current_action = action
 
-        # 환경 스텝 진행
         next_obs, reward, terminated, truncated, info = self.env.step(action)
         self.step_reward = reward
         self.episode_reward += reward
-        self.current_step += 1
-
-        # 텔레메트리 추출
-        self.forward_velocity = info.get("x_velocity", 0.0)
-        if len(next_obs) > 0:
-            self.torso_height = float(next_obs[0]) if isinstance(next_obs, np.ndarray) else 1.4
+        self.alive_step += 1
 
         self.obs = next_obs
 
-        # 에피소드 종료 조건
         if terminated or truncated:
             self.reset_episode()
 
     def reset_episode(self):
-        """에피소드 리셋 및 통계 갱신"""
+        """에피소드 리셋 및 롤링 로그 기록"""
         self.last_rewards.append(self.episode_reward)
         if self.episode_reward > self.best_reward:
             self.best_reward = self.episode_reward
         
+        # 롤링 터미널 로그 추가
+        log_msg = f"[INFO] 에피소드 {self.episode_count:04d} 완료: 보상 {self.episode_reward:+.1f} ({self.alive_step} 스텝)"
+        self.console_logs.append(log_msg)
+
         self.obs, self.info = self.env.reset()
         self.episode_count += 1
-        self.current_step = 0
+        self.alive_step = 0
         self.episode_reward = 0.0
 
     def render_ui(self):
-        """전체 UI 화면 렌더링"""
+        """전체 4단 분할 UI 화면 렌더링"""
         self.screen.fill(BG_DARK)
 
-        # 1. 3D 물리 시뮬레이션 렌더링
-        frame = self.env.render()
-        if frame is not None:
-            surf = pygame.surfarray.make_surface(np.transpose(frame, (1, 0, 2)))
-            self.screen.blit(surf, (20, 20))
-            # 렌더링 뷰 테두리
-            pygame.draw.rect(self.screen, PANEL_BORDER, (20, 20, self.render_width, self.render_height), 2)
+        # 1. 상단 네온 헤더 바 렌더링
+        self.draw_header()
 
-        # 2. 우측 텔레메트리 HUD 패널
-        panel_x = self.render_width + 35
-        panel_y = 20
-        panel_w = self.win_width - panel_x - 20
-        panel_h = self.render_height
+        # 2. 중앙 좌측: 3D 물리 시뮬레이션 뷰 + 상단 3종 오버레이 HUD 카드
+        self.draw_3d_viewport(20, 50, self.render_width, self.render_height)
 
-        self.draw_hud_panel(panel_x, panel_y, panel_w, panel_h)
+        # 3. 중앙 우측: 텔레메트리 3단 카드 패널 (2x2 빅넘버, PPO 진단, 17 DOF 모터 바)
+        right_panel_x = 20 + self.render_width + 15
+        right_panel_w = self.win_width - right_panel_x - 20
+        self.draw_right_telemetry_panel(right_panel_x, 50, right_panel_w, self.render_height)
+
+        # 4. 하단 영역 (와이드 보상 곡선 + 실시간 콘솔 롤링 로그 박스)
+        bottom_y = 50 + self.render_height + 15
+        bottom_h = self.win_height - bottom_y - 15
+        bottom_chart_w = 490
+        bottom_console_x = 20 + bottom_chart_w + 15
+        bottom_console_w = self.win_width - bottom_console_x - 20
+
+        self.draw_bottom_reward_chart(20, bottom_y, bottom_chart_w, bottom_h)
+        self.draw_bottom_console_logs(bottom_console_x, bottom_y, bottom_console_w, bottom_h)
 
         pygame.display.flip()
 
-    def draw_hud_panel(self, x, y, w, h):
-        """사이버펑크 Deep Exploration HUD 패널 그리기"""
-        # 패널 배경 및 외곽선
-        pygame.draw.rect(self.screen, PANEL_BG, (x, y, w, h), border_radius=8)
-        pygame.draw.rect(self.screen, PANEL_BORDER, (x, y, w, h), 2, border_radius=8)
+    def draw_header(self):
+        """상단 네온 헤더 바 (브랜딩 타이틀 + 상태 배지 + 배속 인디케이터)"""
+        # 헤더 배경
+        pygame.draw.rect(self.screen, HEADER_BG, (0, 0, self.win_width, 42))
+        pygame.draw.line(self.screen, PANEL_BORDER, (0, 42), (self.win_width, 42), 1)
 
+        # 좌측 Cyan Accent Bar & Title
+        pygame.draw.rect(self.screen, ACCENT_CYAN, (20, 10, 4, 22), border_radius=2)
+        title_surf = self.font_header_title.render("FIGICAL AI ROBOT LAB", True, TEXT_WHITE)
+        self.screen.blit(title_surf, (32, 11))
+
+        # 서브타이틀
+        sub_surf = self.font_header_sub.render("PPO Deep Reinforcement Learning | Humanoid-v5 Continuous Control", True, TEXT_MUTED)
+        self.screen.blit(sub_surf, (250, 15))
+
+        # 우측 상태 배지
+        deep_m = self.rl_manager.get_deep_metrics()
+        status_text = "■ PPO 학습중 (Active)" if not self.is_paused else "⏸ 일시정지 (Paused)"
+        status_col = ACCENT_MINT if not self.is_paused else ACCENT_ORANGE
+        status_surf = self.font_header_sub.render(status_text, True, status_col)
+        self.screen.blit(status_surf, (self.win_width - 240, 14))
+
+        # 배속 인디케이터
+        speed_text = f"배속: {self.speed_multiplier}x [F]"
+        speed_surf = self.font_header_sub.render(speed_text, True, ACCENT_CYAN)
+        self.screen.blit(speed_surf, (self.win_width - 100, 14))
+
+    def draw_3d_viewport(self, x, y, w, h):
+        """3D 물리 시뮬레이션 화면 + 상단 3종 반투명 오버레이 HUD 카드"""
+        # 1. 3D 물리 시뮬레이션 프레임
+        frame = self.env.render()
+        if frame is not None:
+            surf = pygame.surfarray.make_surface(np.transpose(frame, (1, 0, 2)))
+            self.screen.blit(surf, (x, y))
+
+        # 외곽선 테두리
+        pygame.draw.rect(self.screen, PANEL_BORDER, (x, y, w, h), 2, border_radius=6)
+
+        # 2. 상단 3종 반투명 오버레이 HUD 카드
+        deep_m = self.rl_manager.get_deep_metrics()
+        noise_val = 0.60 if deep_m["exploration_boost"] else 0.30
+
+        overlay_cards = [
+            ("EPISODE", f"{self.episode_count:03d}", TEXT_WHITE, 110),
+            ("ALIVE STEP", f"{self.alive_step}", ACCENT_MINT, 110),
+            ("EXPLORATION NOISE", f"σ = {noise_val:.2f}", ACCENT_GOLD, 170)
+        ]
+
+        card_x = x + 15
+        card_y = y + 15
+        card_h = 44
+
+        for label, val, val_color, card_w in overlay_cards:
+            # 반투명 배경 서피스
+            overlay_surf = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+            overlay_surf.fill(OVERLAY_CARD_BG)
+            pygame.draw.rect(overlay_surf, PANEL_BORDER, (0, 0, card_w, card_h), 1, border_radius=4)
+            self.screen.blit(overlay_surf, (card_x, card_y))
+
+            # 라벨 및 수치 렌더링
+            lbl_s = self.font_overlay_label.render(label, True, TEXT_MUTED)
+            val_s = self.font_overlay_val.render(val, True, val_color)
+            self.screen.blit(lbl_s, (card_x + 10, card_y + 5))
+            self.screen.blit(val_s, (card_x + 10, card_y + 20))
+
+            card_x += card_w + 12
+
+    def draw_right_telemetry_panel(self, x, y, w, h):
+        """우측 텔레메트리 패널 (2x2 빅넘버 + PPO 진단 + 17 DOF 모터 바)"""
+        # 패널 배경
+        pygame.draw.rect(self.screen, PANEL_BG, (x, y, w, h), border_radius=6)
+        pygame.draw.rect(self.screen, PANEL_BORDER, (x, y, w, h), 1, border_radius=6)
+
+        inner_x = x + 12
+        inner_w = w - 24
         cy = y + 12
-        cx = x + 14
-        inner_w = w - 28
 
-        metrics_deep = self.rl_manager.get_deep_metrics()
+        # ----------------------------------------------------
+        # 1. 2x2 빅 넘버 메트릭 카드
+        # ----------------------------------------------------
+        card_h = 108
+        pygame.draw.rect(self.screen, PANEL_INNER_BG, (inner_x, cy, inner_w, card_h), border_radius=4)
+        pygame.draw.rect(self.screen, PANEL_BORDER, (inner_x, cy, inner_w, card_h), 1, border_radius=4)
 
-        # 1. 헤더: 타이틀
-        title_surf = self.font_title.render("⚡ HUMANOID DEEP EXPLORATION", True, ACCENT_CYAN)
-        self.screen.blit(title_surf, (cx, cy))
-        cy += 24
+        avg_20 = np.mean(list(self.last_rewards)[-20:]) if self.last_rewards else 0.0
+        best_val = self.best_reward if self.best_reward > -1e5 else 0.0
+        deep_m = self.rl_manager.get_deep_metrics()
 
-        # 2. 현재 학습 페이즈 배너
-        phase_text = f"🎯 {metrics_deep['current_phase']}"
-        phase_surf = self.font_phase.render(phase_text, True, ACCENT_YELLOW)
-        pygame.draw.rect(self.screen, BAR_BG, (cx, cy, inner_w, 22), border_radius=4)
-        pygame.draw.rect(self.screen, ACCENT_YELLOW, (cx, cy, inner_w, 22), 1, border_radius=4)
-        self.screen.blit(phase_surf, (cx + 8, cy + 4))
-        cy += 28
-
-        # 3. 모드 & 탐색 상태 배지
-        stage_colors = {
-            "RANDOM": (ACCENT_RED, "[1] RANDOM (FALL)"),
-            "EARLY": (ACCENT_ORANGE, "[2] EARLY STAGE"),
-            "LIVE_TRAIN": (ACCENT_GREEN, "[3] LIVE TRAINING"),
-            "TRAINED": (ACCENT_PURPLE, "[4] TRAINED EXPERT")
-        }
-        color, stage_name = stage_colors.get(self.rl_manager.current_stage, (TEXT_WHITE, "UNKNOWN"))
-        badge_surf = self.font_badge.render(f"MODE: {stage_name}", True, color)
-        self.screen.blit(badge_surf, (cx, cy))
-
-        # 부스트 & 터보 상태 태그
-        boost_str = "BOOST: ON 🔥" if metrics_deep["exploration_boost"] else "BOOST: OFF"
-        boost_col = ACCENT_ORANGE if metrics_deep["exploration_boost"] else TEXT_MUTED
-        boost_surf = self.font_sub.render(boost_str, True, boost_col)
-        self.screen.blit(boost_surf, (cx + inner_w - 170, cy + 1))
-
-        turbo_str = "TURBO ⚡" if metrics_deep["is_turbo"] else f"SPD: {self.speed_multiplier}x"
-        turbo_col = ACCENT_YELLOW if metrics_deep["is_turbo"] else TEXT_MUTED
-        turbo_surf = self.font_sub.render(turbo_str, True, turbo_col)
-        self.screen.blit(turbo_surf, (cx + inner_w - 65, cy + 1))
-
-        cy += 20
-        pygame.draw.line(self.screen, PANEL_BORDER, (cx, cy), (cx + inner_w, cy), 1)
-        cy += 8
-
-        # 4. 🎲 심층 탐색 텔레메트리 (Exploration Gauges)
-        lbl_exp = self.font_main.render("🎲 EXPLORATION TELEMETRY", True, ACCENT_CYAN)
-        self.screen.blit(lbl_exp, (cx, cy))
-        cy += 18
-
-        # 4-1) 관절 탐색 다양성 지수 (Diversity Score)
-        div_score = metrics_deep["diversity_index"]
-        self.draw_gauge(cx, cy, inner_w, "Joint Diversity Index", div_score * 100, 0.0, 100.0, "%", ACCENT_PURPLE)
-        cy += 28
-
-        # 4-2) 정책 엔트로피 / 탐색 수준
-        ent_val = abs(metrics_deep["entropy_loss"])
-        self.draw_gauge(cx, cy, inner_w, "Policy Entropy (Action Randomness)", ent_val, 0.0, 30.0, "", ACCENT_ORANGE)
-        cy += 32
-
-        pygame.draw.line(self.screen, PANEL_BORDER, (cx, cy), (cx + inner_w, cy), 1)
-        cy += 8
-
-        # 5. 📊 에피소드 & 보상 메트릭
-        avg_reward = np.mean(self.last_rewards) if self.last_rewards else 0.0
-        metrics = [
-            ("Episode", f"#{self.episode_count}", TEXT_WHITE),
-            ("Step Count", f"{self.current_step}", TEXT_WHITE),
-            ("Step Reward", f"{self.step_reward:+.2f}", ACCENT_CYAN if self.step_reward > 0 else ACCENT_RED),
-            ("Current Return", f"{self.episode_reward:+.1f}", ACCENT_GREEN),
-            ("Best Return", f"{self.best_reward:+.1f}" if self.best_reward > -1e5 else "0.0", ACCENT_PURPLE),
-            ("Avg (Last 60)", f"{avg_reward:+.1f}", ACCENT_YELLOW),
+        cards_2x2 = [
+            ("현재 에피소드 보상", f"{self.episode_reward:+.1f}", ACCENT_CYAN, 0, 0),
+            ("누적 최고 보상", f"{best_val:.1f}", ACCENT_GOLD, 1, 0),
+            ("20-Ep 평균 보상", f"{avg_20:.1f}", ACCENT_MINT, 0, 1),
+            ("총 학습량 (스텝)", f"{deep_m['total_timesteps']:,}", ACCENT_BLUE, 1, 1),
         ]
 
-        for i, (label, val, val_color) in enumerate(metrics):
-            row = i // 2
-            col = i % 2
-            col_x = cx + col * (inner_w // 2)
-            row_y = cy + row * 20
-            
-            lbl_s = self.font_sub.render(f"{label}:", True, TEXT_MUTED)
-            val_s = self.font_main.render(val, True, val_color)
-            self.screen.blit(lbl_s, (col_x, row_y))
-            self.screen.blit(val_s, (col_x + 95, row_y - 2))
+        col_w = inner_w // 2
+        row_h = card_h // 2
 
-        cy += 65
-        pygame.draw.line(self.screen, PANEL_BORDER, (cx, cy), (cx + inner_w, cy), 1)
-        cy += 8
+        for label, val, color, col, row in cards_2x2:
+            bx = inner_x + col * col_w + 12
+            by = cy + row * row_h + 6
+            lbl_s = self.font_card_title.render(label, True, TEXT_MUTED)
+            val_s = self.font_card_val_large.render(val, True, color)
+            self.screen.blit(lbl_s, (bx, by))
+            self.screen.blit(val_s, (bx, by + 16))
 
-        # 6. 📈 실시간 보상 학습 곡선 그래프
-        lbl_graph = self.font_main.render("📈 REWARD HISTORY (LAST 60 EPS)", True, TEXT_WHITE)
-        self.screen.blit(lbl_graph, (cx, cy))
-        cy += 18
-        self.draw_reward_graph(cx, cy, inner_w, 65)
-        cy += 74
+        cy += card_h + 12
 
-        pygame.draw.line(self.screen, PANEL_BORDER, (cx, cy), (cx + inner_w, cy), 1)
-        cy += 8
+        # ----------------------------------------------------
+        # 2. PPO 학습 진단 (Learning Diagnostics)
+        # ----------------------------------------------------
+        diag_h = 96
+        pygame.draw.rect(self.screen, PANEL_INNER_BG, (inner_x, cy, inner_w, diag_h), border_radius=4)
+        pygame.draw.rect(self.screen, PANEL_BORDER, (inner_x, cy, inner_w, diag_h), 1, border_radius=4)
 
-        # 7. 🧠 PPO 신경망 손실 텔레메트리 (Deep Neural Losses)
-        lbl_nn = self.font_main.render("🧠 PPO NEURAL TRAINING TELEMETRY", True, ACCENT_GREEN)
-        self.screen.blit(lbl_nn, (cx, cy))
-        cy += 18
+        diag_title = self.font_section_title.render("PPO 학습 진단 (Learning Diagnostics)", True, TEXT_WHITE)
+        self.screen.blit(diag_title, (inner_x + 12, cy + 8))
 
-        nn_metrics = [
-            ("Timesteps", f"{metrics_deep['total_timesteps']:,}", ACCENT_CYAN),
-            ("Policy Loss", f"{metrics_deep['policy_loss']:.4f}", TEXT_WHITE),
-            ("Value Loss", f"{metrics_deep['value_loss']:.4f}", TEXT_WHITE),
-            ("Approx KL", f"{metrics_deep['approx_kl']:.5f}", ACCENT_YELLOW),
-            ("Clip Ratio", f"{metrics_deep['clip_fraction']:.3f}", TEXT_WHITE),
-            ("Device", f"{metrics_deep['device'].upper()}", ACCENT_PURPLE),
-        ]
+        p_loss = deep_m["policy_loss"]
+        v_loss = deep_m["value_loss"]
+        ent = abs(deep_m["entropy_loss"])
+        updates = deep_m["update_count"]
 
-        for i, (label, val, val_color) in enumerate(nn_metrics):
-            row = i // 2
-            col = i % 2
-            col_x = cx + col * (inner_w // 2)
-            row_y = cy + row * 18
-            
-            lbl_s = self.font_sub.render(f"{label}:", True, TEXT_MUTED)
-            val_s = self.font_sub.render(val, True, val_color)
-            self.screen.blit(lbl_s, (col_x, row_y))
-            self.screen.blit(val_s, (col_x + 95, row_y))
+        # 손실 및 진단 지표 출력
+        l1 = f"PPO Policy Loss : {p_loss:+.4f}"
+        l2 = f"Value Func Loss : {v_loss:.4f}"
+        l3 = f"Entropy (탐색률) : {ent:.3f} | Updates : #{updates}"
 
-        cy += 58
-        pygame.draw.line(self.screen, PANEL_BORDER, (cx, cy), (cx + inner_w, cy), 1)
-        cy += 8
+        self.screen.blit(self.font_body.render(l1, True, ACCENT_ORANGE if p_loss >= 0 else ACCENT_RED), (inner_x + 12, cy + 30))
+        self.screen.blit(self.font_body.render(l2, True, ACCENT_GOLD), (inner_x + 12, cy + 48))
+        self.screen.blit(self.font_body.render(l3, True, ACCENT_MINT), (inner_x + 12, cy + 68))
 
-        # 8. 🎛️ 17개 관절 모터 출력 히트맵 (Actuator Torques)
-        lbl_act = self.font_main.render("🎛️ 17 JOINT ACTUATOR OUTPUTS", True, TEXT_WHITE)
-        self.screen.blit(lbl_act, (cx, cy))
-        cy += 16
-        self.draw_actuator_bars(cx, cy, inner_w, 32)
-        cy += 40
+        cy += diag_h + 12
 
-        pygame.draw.line(self.screen, PANEL_BORDER, (cx, cy), (cx + inner_w, cy), 1)
-        cy += 8
+        # ----------------------------------------------------
+        # 3. 액추에이터 토크 - 17 DOF (Actuator Torques - 17 DOF)
+        # ----------------------------------------------------
+        act_h = h - (cy - y) - 12
+        pygame.draw.rect(self.screen, PANEL_INNER_BG, (inner_x, cy, inner_w, act_h), border_radius=4)
+        pygame.draw.rect(self.screen, PANEL_BORDER, (inner_x, cy, inner_w, act_h), 1, border_radius=4)
 
-        # 9. 🎮 인터랙티브 단축키 안내 패널
-        sc1 = "[SPACE] Pause  [E] Expl-Boost  [T] Turbo-Train  [1~4] Modes"
-        sc2 = "[+/-] Speed    [R] Reset Env   [S/L] Save/Load  [ESC/Q] Quit"
-        self.screen.blit(self.font_sub.render(sc1, True, ACCENT_CYAN), (cx, cy))
-        self.screen.blit(self.font_sub.render(sc2, True, TEXT_MUTED), (cx, cy + 14))
+        act_title = self.font_section_title.render("액추에이터 토크 (Actuator Torques - 17 DOF)", True, TEXT_WHITE)
+        self.screen.blit(act_title, (inner_x + 12, cy + 8))
 
-    def draw_reward_graph(self, x, y, w, h):
-        """실시간 보상 추이 미니 그래프 렌더링"""
-        pygame.draw.rect(self.screen, BAR_BG, (x, y, w, h), border_radius=4)
-        pygame.draw.rect(self.screen, GRAPH_GRID, (x, y, w, h), 1, border_radius=4)
+        # 좌측 9개, 우측 8개 2열 렌더링
+        start_y = cy + 30
+        line_spacing = 18
+        col_width = (inner_w - 30) // 2
+
+        # 좌측 열 (0~8)
+        for i, name in enumerate(JOINT_NAMES_LEFT):
+            val = self.current_action[i] if i < len(self.current_action) else 0.0
+            row_y = start_y + i * line_spacing
+            self.draw_joint_torque_row(inner_x + 10, row_y, col_width, name, val)
+
+        # 우측 열 (9~16)
+        for j, name in enumerate(JOINT_NAMES_RIGHT):
+            idx = 9 + j
+            val = self.current_action[idx] if idx < len(self.current_action) else 0.0
+            row_y = start_y + j * line_spacing
+            self.draw_joint_torque_row(inner_x + 10 + col_width + 10, row_y, col_width, name, val)
+
+    def draw_joint_torque_row(self, x, y, w, name, val):
+        """관절명 + 양방향 토크 바 (Cyan = 양수, Magenta = 음수)"""
+        # 관절 라벨
+        lbl_s = self.font_body.render(name, True, TEXT_MUTED)
+        self.screen.blit(lbl_s, (x, y))
+
+        # 토크 바 영역
+        bar_x = x + 85
+        bar_w = w - 90
+        bar_h = 6
+        bar_y = y + 4
+
+        # 배경 트랙
+        pygame.draw.rect(self.screen, BAR_TRACK, (bar_x, bar_y, bar_w, bar_h), border_radius=2)
+
+        # 중앙 기준 (0)
+        center_x = bar_x + bar_w // 2
+        norm_val = np.clip(val, -1.0, 1.0)
+        fill_len = int(abs(norm_val) * (bar_w // 2))
+
+        if norm_val >= 0:
+            # 양의 토크 (Cyan -> 오른쪽으로)
+            rect = pygame.Rect(center_x, bar_y, fill_len, bar_h)
+            color = ACCENT_CYAN
+        else:
+            # 음의 토크 (Magenta -> 왼쪽으로)
+            rect = pygame.Rect(center_x - fill_len, bar_y, fill_len, bar_h)
+            color = ACCENT_MAGENTA
+
+        if fill_len > 0:
+            pygame.draw.rect(self.screen, color, rect, border_radius=2)
+
+    def draw_bottom_reward_chart(self, x, y, w, h):
+        """하단 좌측: 실시간 보상 추이 곡선 (Reward Curve)"""
+        pygame.draw.rect(self.screen, PANEL_BG, (x, y, w, h), border_radius=6)
+        pygame.draw.rect(self.screen, PANEL_BORDER, (x, y, w, h), 1, border_radius=6)
+
+        # 타이틀
+        title = self.font_section_title.render("실시간 보상 추이 곡선 (Reward Curve)", True, TEXT_WHITE)
+        self.screen.blit(title, (x + 14, y + 10))
+
+        # 우측 상단 최고 보상 마커
+        max_r_val = max(self.last_rewards) if self.last_rewards else 0.0
+        max_lbl = self.font_body_bold.render(f"최고: {max_r_val:.1f}", True, ACCENT_CYAN)
+        self.screen.blit(max_lbl, (x + w - max_lbl.get_width() - 14, y + 10))
+
+        # 차트 캔버스 영역
+        gx = x + 14
+        gy = y + 32
+        gw = w - 28
+        gh = h - 44
+
+        pygame.draw.rect(self.screen, PANEL_INNER_BG, (gx, gy, gw, gh), border_radius=4)
+        pygame.draw.rect(self.screen, PANEL_BORDER, (gx, gy, gw, gh), 1, border_radius=4)
+
+        # 수평 가이드 라인 3개
+        for step_i in range(1, 4):
+            line_y = gy + step_i * (gh // 4)
+            pygame.draw.line(self.screen, GRAPH_GRID, (gx, line_y), (gx + gw, line_y), 1)
 
         if len(self.last_rewards) < 2:
-            no_data = self.font_sub.render("Collecting exploration & reward data...", True, TEXT_MUTED)
-            self.screen.blit(no_data, (x + w // 2 - no_data.get_width() // 2, y + h // 2 - 7))
+            no_data = self.font_body.render("에피소드 데이터 수집 중...", True, TEXT_MUTED)
+            self.screen.blit(no_data, (gx + gw // 2 - no_data.get_width() // 2, gy + gh // 2 - 8))
             return
 
         rewards = list(self.last_rewards)
         min_r = min(min(rewards), 0)
-        max_r = max(max(rewards), 500)
+        max_r = max(max(rewards), 300)
         rng = max_r - min_r if max_r != min_r else 1.0
 
         points = []
-        step_x = w / (len(rewards) - 1)
+        step_x = gw / (len(rewards) - 1)
         for idx, r in enumerate(rewards):
-            px = x + idx * step_x
-            py = y + h - ((r - min_r) / rng) * (h - 8) - 4
+            px = gx + idx * step_x
+            py = gy + gh - ((r - min_r) / rng) * (gh - 12) - 6
             points.append((px, py))
 
-        # 그래프 선 그리기
+        # 라인 차트 렌더링
         if len(points) >= 2:
             pygame.draw.lines(self.screen, ACCENT_CYAN, False, points, 2)
-            pygame.draw.circle(self.screen, ACCENT_GREEN, (int(points[-1][0]), int(points[-1][1])), 3)
+            # 마지막 점 강조 마커
+            last_pt = (int(points[-1][0]), int(points[-1][1]))
+            pygame.draw.circle(self.screen, ACCENT_MINT, last_pt, 4)
 
-    def draw_gauge(self, x, y, w, label, val, min_v, max_v, unit, color):
-        """수평 프로그레스 바 게이지 렌더링"""
-        lbl_s = self.font_sub.render(f"{label}: {val:.1f} {unit}".strip(), True, TEXT_MUTED)
-        self.screen.blit(lbl_s, (x, y))
+    def draw_bottom_console_logs(self, x, y, w, h):
+        """하단 우측: 실시간 롤링 터미널 콘솔 로그 박스"""
+        pygame.draw.rect(self.screen, PANEL_BG, (x, y, w, h), border_radius=6)
+        pygame.draw.rect(self.screen, PANEL_BORDER, (x, y, w, h), 1, border_radius=6)
 
-        bar_y = y + 14
-        bar_h = 6
-        pygame.draw.rect(self.screen, BAR_BG, (x, bar_y, w, bar_h), border_radius=3)
+        # 타이틀
+        title = self.font_section_title.render("PPO 에피소드 완료 로그 (Live Console)", True, TEXT_WHITE)
+        self.screen.blit(title, (x + 14, y + 10))
 
-        norm_val = np.clip((val - min_v) / (max_v - min_v), 0.0, 1.0)
-        fill_w = int(w * norm_val)
-        if fill_w > 0:
-            pygame.draw.rect(self.screen, color, (x, bar_y, fill_w, bar_h), border_radius=3)
+        # 단축키 안내 뱃지
+        keys_hint = self.font_body.render("[SPACE] 일시정지  [E] 탐색부스트  [T] 터보  [F] 배속  [1~4] 모드", True, TEXT_MUTED)
+        self.screen.blit(keys_hint, (x + w - keys_hint.get_width() - 14, y + 10))
 
-    def draw_actuator_bars(self, x, y, w, h):
-        """17개 관절 모터의 실시간 출력 토크 막대 차트"""
-        n_act = len(self.current_action)
-        bar_w = (w - (n_act - 1) * 2) // n_act
-        center_y = y + h // 2
+        # 로그 박스 내부 캔버스
+        lx = x + 14
+        ly = y + 32
+        lw = w - 28
+        lh = h - 44
 
-        pygame.draw.line(self.screen, PANEL_BORDER, (x, center_y), (x + w, center_y), 1)
+        pygame.draw.rect(self.screen, PANEL_INNER_BG, (lx, ly, lw, lh), border_radius=4)
+        pygame.draw.rect(self.screen, PANEL_BORDER, (lx, ly, lw, lh), 1, border_radius=4)
 
-        for i, val in enumerate(self.current_action):
-            bx = x + i * (bar_w + 2)
-            bh = int(abs(val) * (h // 2 - 2))
-            bar_color = ACCENT_CYAN if val >= 0 else ACCENT_ORANGE
-            
-            if val >= 0:
-                rect = pygame.Rect(bx, center_y - bh, bar_w, bh)
+        # 최근 로그 7줄 렌더링
+        recent_logs = list(self.console_logs)[-7:]
+        log_start_y = ly + 8
+        for i, log_text in enumerate(recent_logs):
+            # 로그 유형별 색상
+            if "[SYSTEM]" in log_text:
+                color = ACCENT_CYAN
+            elif "[CHECKPOINT]" in log_text:
+                color = ACCENT_GOLD
+            elif "보상 +" in log_text or "보상 2" in log_text:
+                color = ACCENT_MINT
             else:
-                rect = pygame.Rect(bx, center_y, bar_w, bh)
-            
-            pygame.draw.rect(self.screen, bar_color, rect, border_radius=2)
+                color = TEXT_WHITE
+
+            log_surf = self.font_console.render(log_text, True, color)
+            self.screen.blit(log_surf, (lx + 10, log_start_y + i * 20))
 
     def cleanup(self):
-        """종료 시 자원 해제"""
+        """종료 시 자원 정리"""
         print("[App] Cleaning up and closing environment...")
         self.rl_manager.close()
         pygame.quit()
